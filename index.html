@@ -80,8 +80,8 @@ let frameCount = 0;
 const speed = 2.5;
 
 // 固定連桿長度
-const L1 = 110; // 大臂
-const L2 = 90;  // 小臂
+const L1 = 110; 
+const L2 = 90;  
 
 const rTop = { base: {x: 640, y: 70}, targetTip: {x: 640, y: 150}, state: 'IDLE', torque: 0 };
 const rBot = { base: {x: 640, y: 500}, targetTip: {x: 640, y: 420}, state: 'IDLE', torque: 0 };
@@ -118,12 +118,10 @@ function drawGlassesRealistic(g) {
 
     ctx.strokeStyle = '#a1a1aa'; ctx.lineWidth = 3;
     
-    // 收攏的鏡腳
     ctx.fillStyle = '#1e1e24'; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(15, -60); ctx.lineTo(-70, -50); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(15, 60); ctx.lineTo(-80, 45); ctx.stroke();
 
-    // 鏡框
     ctx.fillStyle = '#0a0a0c'; ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(25, -70);
@@ -133,12 +131,10 @@ function drawGlassesRealistic(g) {
     ctx.closePath();
     ctx.fill(); ctx.stroke();
 
-    // 鏡片
     ctx.fillStyle = '#0c2233';
     ctx.beginPath(); ctx.roundRect(16, -65, 10, 55, 3); ctx.fill();
     ctx.beginPath(); ctx.roundRect(16, 10, 10, 55, 3); ctx.fill();
 
-    // 鉸鏈與螺絲
     const drawHinge = (x, y, isScrewed) => {
         ctx.fillStyle = '#cbd5e1'; ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
         if(isScrewed) {
@@ -185,79 +181,78 @@ function drawKinematicRobot(robot, isTop, actualTargetPos) {
     
     ctx.save();
     
-    // J1 底座
     ctx.fillStyle = '#27272a';
     ctx.beginPath(); ctx.arc(robot.base.x, robot.base.y, 40, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.stroke();
     ctx.font = '700 9px Roboto Mono'; ctx.fillStyle = '#fff'; ctx.fillText('J1_BASE', robot.base.x - 20, robot.base.y + 5);
 
-    // 計算手肘位置
     const elbowX = robot.base.x + Math.cos(thetaJ2) * L1;
     const elbowY = robot.base.y + Math.sin(thetaJ2) * L1;
 
-    // 繪製大臂
     ctx.strokeStyle = '#eab308'; ctx.lineWidth = 18; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(robot.base.x, robot.base.y); ctx.lineTo(elbowX, elbowY); ctx.stroke();
     
-    // 繪製小臂
     ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 12;
     ctx.beginPath(); ctx.moveTo(elbowX, elbowY); ctx.lineTo(clampedX, clampedY); ctx.stroke();
     
-    // 繪製關節點 (Elbow)
     ctx.fillStyle = '#d1d5db'; ctx.beginPath(); ctx.arc(robot.base.x, robot.base.y, 10, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = '#eab308'; ctx.beginPath(); ctx.arc(elbowX, elbowY, 10, 0, Math.PI*2); ctx.fill();
     ctx.font = '700 9px Roboto Mono'; ctx.fillStyle = '#fff'; 
     ctx.fillText('J3', elbowX - 5, elbowY - 15);
 
     // ----------------------------------------------------------------
-    // 修正：將 3D AOI Sensor 安裝在手臂末端 (EOAT)
+    // 修正：3D AOI Sensor 文字轉正與光線發射
     // ----------------------------------------------------------------
     let angleL2 = Math.atan2(clampedY - elbowY, clampedX - elbowX);
     let sensDir = isTop ? -1 : 1;
     
     ctx.save();
-    // 移動坐標系至末端工具中心
     ctx.translate(clampedX, clampedY);
     ctx.rotate(angleL2);
     
-    // Sensor 安裝在離工具端點後方 15px，並側向偏移
     let sensOffsetX = -15; 
     let sensOffsetY = sensDir * 14;
     
+    // 藍色 Sensor 盒體
     ctx.fillStyle = '#0ea5e9'; 
     ctx.shadowBlur = 10; ctx.shadowColor = '#0ea5e9';
-    // 繪製藍色 Sensor 盒體
     ctx.beginPath(); 
     ctx.roundRect(sensOffsetX - 10, sensOffsetY - 6, 20, 12, 3); 
     ctx.fill(); 
     ctx.shadowBlur = 0;
     
+    // 修正：文字自動轉正邏輯
+    ctx.save();
+    ctx.translate(sensOffsetX, sensOffsetY);
+    if (Math.abs(angleL2) > Math.PI / 2) {
+        ctx.rotate(Math.PI); // 當手臂朝左時，翻轉 180 度讓字轉正
+    }
     ctx.fillStyle = '#fff';
     ctx.font = '700 8px Roboto Mono';
-    ctx.fillText('AOI', sensOffsetX - 8, sensOffsetY + 3);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('AOI', 0, 0);
+    ctx.restore(); 
+
     ctx.restore(); // 退出末端坐標系
 
-    // 繪製掃描雷射：精確從 Sensor 盒體前端發出
     if(robot.state === 'DETECTING') {
-        // 計算 Sensor 前端在畫布上的絕對坐標
         let absSensX = clampedX + Math.cos(angleL2) * (sensOffsetX + 10) - Math.sin(angleL2) * sensOffsetY;
         let absSensY = clampedY + Math.sin(angleL2) * (sensOffsetX + 10) + Math.cos(angleL2) * sensOffsetY;
 
         ctx.fillStyle = 'rgba(52, 211, 153, 0.15)'; 
         ctx.strokeStyle = 'rgba(52, 211, 153, 0.5)'; ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(absSensX, absSensY); // 雷射起點精確對齊 Sensor
+        ctx.moveTo(absSensX, absSensY); 
         
-        // 掃描光束垂直指向眼鏡方向
         let scanAng = isTop ? Math.PI/2 : -Math.PI/2; 
-        let scanDist = 65; // 射程覆蓋鉸鏈
+        let scanDist = 65; 
         
         ctx.lineTo(absSensX + Math.cos(scanAng - 0.35)*scanDist, absSensY + Math.sin(scanAng - 0.35)*scanDist);
         ctx.lineTo(absSensX + Math.cos(scanAng + 0.35)*scanDist, absSensY + Math.sin(scanAng + 0.35)*scanDist);
         ctx.closePath(); ctx.fill(); ctx.stroke();
     }
 
-    // 繪製起子 (End Effector)
     ctx.save();
     ctx.translate(clampedX, clampedY);
     ctx.rotate(angleL2);
@@ -269,7 +264,7 @@ function drawKinematicRobot(robot, isTop, actualTargetPos) {
     }
     ctx.restore();
 
-    ctx.restore(); // 退出整支手臂坐標系
+    ctx.restore(); 
 }
 
 function updateHUD() {
@@ -308,7 +303,6 @@ function updateLogic() {
         let hingeY_T = activeItem.y - 55;
         let hingeY_B = activeItem.y + 55;
         
-        // 懸空高度追隨，保持 40px 的最佳掃描對焦距離 (Focal Distance)
         rTop.targetTip.x = hingeX; 
         rTop.targetTip.y = hingeY_T - 40; 
         rBot.targetTip.x = hingeX; 
@@ -320,7 +314,6 @@ function updateLogic() {
         }
     }
     else if (rTop.state === 'SCREWING' && activeItem) {
-        // 下降貼合鎖附
         rTop.targetTip.x = activeItem.x + 16; rTop.targetTip.y = activeItem.y - 55;
         rBot.targetTip.x = activeItem.x + 16; rBot.targetTip.y = activeItem.y + 55;
         
@@ -344,7 +337,6 @@ function updateLogic() {
     updateHUD();
 }
 
-// 增強兼容性 polyfill
 if (!CanvasRenderingContext2D.prototype.roundRect) {
     CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
         if (w < 2 * r) r = w / 2; if (h < 2 * r) r = h / 2;
