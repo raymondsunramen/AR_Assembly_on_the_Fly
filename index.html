@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AR Smart Glasses - Kinematic Articulated Robots with EOAT Vision</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=Inter:wght@400;700&display=swap');
+        
+        body { margin: 0; padding: 0; background: #0c0c0e; color: #f8fafc; font-family: 'Inter', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        .dashboard { width: 1280px; height: 720px; background: rgba(26, 29, 36, 0.95); border-radius: 12px; box-shadow: 0 40px 100px -12px rgba(0, 0, 0, 0.7); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #2d2d35; backdrop-filter: blur(10px); }
+        
+        .header { background: #0c0c0e; padding: 18px 30px; border-bottom: 2px solid #eab308; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { margin: 0; font-size: 20px; font-weight: 700; color: #f8fafc; letter-spacing: 1px; text-transform: uppercase; }
+        .header h1 span { color: #eab308; }
+        .sys-status { background: #15201a; border: 1px solid #10b981; color: #34d399; padding: 6px 16px; border-radius: 4px; font-family: 'Roboto Mono', monospace; font-size: 12px; font-weight: bold; text-transform: uppercase; }
+
+        .canvas-container { position: relative; flex-grow: 1; background: #0f1115; }
+        canvas { display: block; width: 100%; height: 100%; background-image: radial-gradient(rgba(51, 65, 85, 0.3) 1px, transparent 1px); background-size: 30px 30px; }
+        
+        .hud-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; padding: 30px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; }
+        .hud-row { display: flex; justify-content: space-between; }
+        
+        .panel { background: rgba(15, 17, 21, 0.85); border: 1px solid #2d2d35; padding: 15px 25px; border-radius: 8px; backdrop-filter: blur(4px); font-family: 'Roboto Mono', monospace; min-width: 200px; }
+        .panel-top-yellow { border-top: 3px solid #eab308; }
+        
+        .label { font-size: 11px; color: #8a8a9a; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px; }
+        .value { font-size: 24px; color: #f8fafc; font-weight: 700; }
+        .value span { font-size: 13px; color: #eab308; margin-left: 4px; }
+
+        .footer { background: #0c0c0e; padding: 12px 30px; display: flex; justify-content: space-between; font-size: 12px; color: #64748b; border-top: 1px solid #2d2d35; text-transform: uppercase; letter-spacing: 1px; }
+        .footer b { color: #cbd5e1; }
+    </style>
+</head>
+<body>
+
+<div class="dashboard">
+    <div class="header">
+        <h1>STATION-05 <span>//</span> KINEMATIC DUAL-ARM HINGE ASSEMBLY</h1>
+        <div class="sys-status" id="sysStatus">● SYS_READY</div>
+    </div>
+    
+    <div class="canvas-container">
+        <canvas id="factoryCanvas" width="1280" height="570"></canvas>
+        <div class="hud-overlay">
+            <div class="hud-row">
+                <div class="panel panel-top-yellow">
+                    <div class="label">ARM_T : MOTION PROFILE</div>
+                    <div class="value" id="valStateT">PENDING</div>
+                </div>
+                <div class="panel panel-top-yellow" style="text-align: right;">
+                    <div class="label">CONVEYOR GUIDE</div>
+                    <div class="value">L → R <span>SYNC</span></div>
+                </div>
+            </div>
+            <div class="hud-row">
+                <div class="panel">
+                    <div class="label">ARM_B : SERVO TORQUE</div>
+                    <div class="value" id="valTqB">0.00<span>N·m</span></div>
+                </div>
+                <div class="panel" style="text-align: right; border-bottom: 3px solid #ca8a04;">
+                    <div class="label">TARGET UPH</div>
+                    <div class="value">300<span>PCS</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div>PROCESS: <b>EYE-IN-HAND SCAN & FASTEN</b></div>
+        <div>ARM TYPE: <b>6-DOF (FIXED-LINK IK)</b></div>
+        <div>ORIENTATION: <b>VERTICAL (FOLDED TEMPLES)</b></div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('factoryCanvas');
+const ctx = canvas.getContext('2d');
+
+let frameCount = 0;
+const speed = 2.5;
+
+// 固定連桿長度
+const L1 = 110; // 大臂
+const L2 = 90;  // 小臂
+
+const rTop = { base: {x: 640, y: 70}, targetTip: {x: 640, y: 150}, state: 'IDLE', torque: 0 };
+const rBot = { base: {x: 640, y: 500}, targetTip: {x: 640, y: 420}, state: 'IDLE', torque: 0 };
+
+let products = [];
+for(let i=0; i<4; i++) {
+    products.push({ x: i * 450, y: 285, screwedT: false, screwedB: false, active: false });
+}
+
+function drawConveyor() {
+    ctx.fillStyle = '#0f1115';
+    ctx.fillRect(0, 185, 1280, 200);
+    
+    ctx.strokeStyle = '#2d2d35';
+    ctx.lineWidth = 2;
+    let offset = (frameCount * speed) % 50;
+    for(let i = -50; i < 1330; i += 50) {
+        let x = i + offset; 
+        ctx.beginPath(); ctx.moveTo(x, 185); ctx.lineTo(x, 385); ctx.stroke();
+    }
+    
+    ctx.fillStyle = '#3f3f46';
+    ctx.fillRect(0, 180, 1280, 5);
+    ctx.fillRect(0, 385, 1280, 5);
+}
+
+function drawGlassesRealistic(g) {
+    ctx.save();
+    ctx.translate(g.x, g.y);
+    
+    if (g.active) {
+        ctx.shadowBlur = 15; ctx.shadowColor = '#eab308';
+    }
+
+    ctx.strokeStyle = '#a1a1aa'; ctx.lineWidth = 3;
+    
+    // 收攏的鏡腳
+    ctx.fillStyle = '#1e1e24'; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(15, -60); ctx.lineTo(-70, -50); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(15, 60); ctx.lineTo(-80, 45); ctx.stroke();
+
+    // 鏡框
+    ctx.fillStyle = '#0a0a0c'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(25, -70);
+    ctx.quadraticCurveTo(35, 0, 25, 70); 
+    ctx.lineTo(15, 70);
+    ctx.quadraticCurveTo(20, 0, 15, -70); 
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // 鏡片
+    ctx.fillStyle = '#0c2233';
+    ctx.beginPath(); ctx.roundRect(16, -65, 10, 55, 3); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(16, 10, 10, 55, 3); ctx.fill();
+
+    // 鉸鏈與螺絲
+    const drawHinge = (x, y, isScrewed) => {
+        ctx.fillStyle = '#cbd5e1'; ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
+        if(isScrewed) {
+            ctx.fillStyle = '#ca8a04'; ctx.shadowBlur = 8; ctx.shadowColor = '#ca8a04';
+            ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x-2, y); ctx.lineTo(x+2, y); ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+    };
+    drawHinge(16, -55, g.screwedT); 
+    drawHinge(16, 55, g.screwedB);  
+
+    ctx.restore();
+}
+
+function drawKinematicRobot(robot, isTop, actualTargetPos) {
+    const targetX = actualTargetPos.x;
+    const targetY = actualTargetPos.y;
+    
+    let dx = targetX - robot.base.x;
+    let dy = targetY - robot.base.y;
+    let dist = Math.sqrt(dx*dx + dy*dy);
+    
+    let clampedX = targetX;
+    let clampedY = targetY;
+    if (dist > (L1 + L2) * 0.99) { 
+        const maxReach = (L1 + L2) * 0.99;
+        const ang = Math.atan2(dy, dx);
+        clampedX = robot.base.x + Math.cos(ang) * maxReach;
+        clampedY = robot.base.y + Math.sin(ang) * maxReach;
+    }
+
+    const finalDx = clampedX - robot.base.x;
+    const finalDy = clampedY - robot.base.y;
+    const finalDist = Math.sqrt(finalDx*finalDx + finalDy*finalDy);
+
+    let cosAlpha = (L1*L1 + finalDist*finalDist - L2*L2) / (2 * L1 * finalDist);
+    if (cosAlpha > 1) cosAlpha = 1; else if (cosAlpha < -1) cosAlpha = -1;
+    let alpha = Math.acos(cosAlpha);
+
+    let thetaBaseToTarget = Math.atan2(finalDy, finalDx);
+    let elbowDirection = isTop ? -1 : 1; 
+    let thetaJ2 = thetaBaseToTarget + (elbowDirection * alpha);
+    
+    ctx.save();
+    
+    // J1 底座
+    ctx.fillStyle = '#27272a';
+    ctx.beginPath(); ctx.arc(robot.base.x, robot.base.y, 40, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.font = '700 9px Roboto Mono'; ctx.fillStyle = '#fff'; ctx.fillText('J1_BASE', robot.base.x - 20, robot.base.y + 5);
+
+    // 計算手肘位置
+    const elbowX = robot.base.x + Math.cos(thetaJ2) * L1;
+    const elbowY = robot.base.y + Math.sin(thetaJ2) * L1;
+
+    // 繪製大臂
+    ctx.strokeStyle = '#eab308'; ctx.lineWidth = 18; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(robot.base.x, robot.base.y); ctx.lineTo(elbowX, elbowY); ctx.stroke();
+    
+    // 繪製小臂
+    ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 12;
+    ctx.beginPath(); ctx.moveTo(elbowX, elbowY); ctx.lineTo(clampedX, clampedY); ctx.stroke();
+    
+    // 繪製關節點 (Elbow)
+    ctx.fillStyle = '#d1d5db'; ctx.beginPath(); ctx.arc(robot.base.x, robot.base.y, 10, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#eab308'; ctx.beginPath(); ctx.arc(elbowX, elbowY, 10, 0, Math.PI*2); ctx.fill();
+    ctx.font = '700 9px Roboto Mono'; ctx.fillStyle = '#fff'; 
+    ctx.fillText('J3', elbowX - 5, elbowY - 15);
+
+    // ----------------------------------------------------------------
+    // 修正：將 3D AOI Sensor 安裝在手臂末端 (EOAT)
+    // ----------------------------------------------------------------
+    let angleL2 = Math.atan2(clampedY - elbowY, clampedX - elbowX);
+    let sensDir = isTop ? -1 : 1;
+    
+    ctx.save();
+    // 移動坐標系至末端工具中心
+    ctx.translate(clampedX, clampedY);
+    ctx.rotate(angleL2);
+    
+    // Sensor 安裝在離工具端點後方 15px，並側向偏移
+    let sensOffsetX = -15; 
+    let sensOffsetY = sensDir * 14;
+    
+    ctx.fillStyle = '#0ea5e9'; 
+    ctx.shadowBlur = 10; ctx.shadowColor = '#0ea5e9';
+    // 繪製藍色 Sensor 盒體
+    ctx.beginPath(); 
+    ctx.roundRect(sensOffsetX - 10, sensOffsetY - 6, 20, 12, 3); 
+    ctx.fill(); 
+    ctx.shadowBlur = 0;
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 8px Roboto Mono';
+    ctx.fillText('AOI', sensOffsetX - 8, sensOffsetY + 3);
+    ctx.restore(); // 退出末端坐標系
+
+    // 繪製掃描雷射：精確從 Sensor 盒體前端發出
+    if(robot.state === 'DETECTING') {
+        // 計算 Sensor 前端在畫布上的絕對坐標
+        let absSensX = clampedX + Math.cos(angleL2) * (sensOffsetX + 10) - Math.sin(angleL2) * sensOffsetY;
+        let absSensY = clampedY + Math.sin(angleL2) * (sensOffsetX + 10) + Math.cos(angleL2) * sensOffsetY;
+
+        ctx.fillStyle = 'rgba(52, 211, 153, 0.15)'; 
+        ctx.strokeStyle = 'rgba(52, 211, 153, 0.5)'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(absSensX, absSensY); // 雷射起點精確對齊 Sensor
+        
+        // 掃描光束垂直指向眼鏡方向
+        let scanAng = isTop ? Math.PI/2 : -Math.PI/2; 
+        let scanDist = 65; // 射程覆蓋鉸鏈
+        
+        ctx.lineTo(absSensX + Math.cos(scanAng - 0.35)*scanDist, absSensY + Math.sin(scanAng - 0.35)*scanDist);
+        ctx.lineTo(absSensX + Math.cos(scanAng + 0.35)*scanDist, absSensY + Math.sin(scanAng + 0.35)*scanDist);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+
+    // 繪製起子 (End Effector)
+    ctx.save();
+    ctx.translate(clampedX, clampedY);
+    ctx.rotate(angleL2);
+    ctx.fillStyle = '#a1a1aa'; ctx.fillRect(-3, -4, 15, 8); 
+    if(robot.state === 'SCREWING') {
+        ctx.strokeStyle = '#ca8a04'; ctx.lineWidth = 2;
+        let spin = (frameCount * 0.8) % (Math.PI*2);
+        ctx.beginPath(); ctx.arc(5, 0, 12, spin, spin + Math.PI*1.5); ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.restore(); // 退出整支手臂坐標系
+}
+
+function updateHUD() {
+    document.getElementById('valTqB').innerHTML = `${rBot.torque.toFixed(2)}<span>N·m</span>`;
+    document.getElementById('valStateT').innerText = rTop.state === 'IDLE' ? 'PENDING' : rTop.state;
+}
+
+function updateLogic() {
+    frameCount++;
+    
+    products.forEach(g => {
+        g.x += speed; 
+        if(g.x > 1400) { g.x = -200; g.screwedT = false; g.screwedB = false; g.active = false; }
+    });
+
+    const sysStatus = document.getElementById('sysStatus');
+    let activeItem = products.find(g => g.active);
+
+    if (rTop.state === 'IDLE') {
+        let nextItem = products.find(g => !g.screwedT && g.x > 200 && g.x < 700);
+        if(nextItem) {
+            nextItem.active = true;
+            rTop.state = 'DETECTING'; rBot.state = 'DETECTING';
+            sysStatus.innerText = `● SYS: EYE-IN-HAND SCAN`; sysStatus.style.color = "#fbbf24";
+        } else {
+            rTop.targetTip.x += (640 - rTop.targetTip.x)*0.1;
+            rTop.targetTip.y += (150 - rTop.targetTip.y)*0.1; 
+            rBot.targetTip.x += (640 - rBot.targetTip.x)*0.1;
+            rBot.targetTip.y += (420 - rBot.targetTip.y)*0.1; 
+            rBot.torque = 0;
+            sysStatus.innerText = '● SYS_READY'; sysStatus.style.color = "#34d399";
+        }
+    } 
+    else if (rTop.state === 'DETECTING' && activeItem) {
+        let hingeX = activeItem.x + 16;
+        let hingeY_T = activeItem.y - 55;
+        let hingeY_B = activeItem.y + 55;
+        
+        // 懸空高度追隨，保持 40px 的最佳掃描對焦距離 (Focal Distance)
+        rTop.targetTip.x = hingeX; 
+        rTop.targetTip.y = hingeY_T - 40; 
+        rBot.targetTip.x = hingeX; 
+        rBot.targetTip.y = hingeY_B + 40; 
+
+        if(activeItem.x > 500) {
+            rTop.state = 'SCREWING'; rBot.state = 'SCREWING';
+            sysStatus.innerText = '● SYS: FASTENING';
+        }
+    }
+    else if (rTop.state === 'SCREWING' && activeItem) {
+        // 下降貼合鎖附
+        rTop.targetTip.x = activeItem.x + 16; rTop.targetTip.y = activeItem.y - 55;
+        rBot.targetTip.x = activeItem.x + 16; rBot.targetTip.y = activeItem.y + 55;
+        
+        rBot.torque += (1.2 - rBot.torque) * 0.08;
+
+        if(rBot.torque > 1.15) {
+            activeItem.screwedT = true; activeItem.screwedB = true; activeItem.active = false;
+            rTop.state = 'RETRACT'; rBot.state = 'RETRACT';
+            sysStatus.innerText = '● SYS: FASTEN_OK';
+        }
+    }
+    else if (rTop.state === 'RETRACT') {
+        rTop.targetTip.y -= 10; rBot.targetTip.y += 10; 
+        rBot.torque = 0;
+        
+        if(rTop.targetTip.y < 150) {
+            rTop.state = 'IDLE'; rBot.state = 'IDLE';
+        }
+    }
+
+    updateHUD();
+}
+
+// 增強兼容性 polyfill
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+        if (w < 2 * r) r = w / 2; if (h < 2 * r) r = h / 2;
+        this.beginPath(); this.moveTo(x + r, y);
+        this.arcTo(x + w, y, x + w, y + h, r);
+        this.arcTo(x + w, y + h, x, y + h, r);
+        this.arcTo(x, y + h, x, y, r);
+        this.arcTo(x, y, x + w, y, r);
+        this.closePath(); return this;
+    };
+}
+
+function loop() {
+    ctx.clearRect(0, 0, 1280, 570);
+    drawConveyor();
+    products.forEach(drawGlassesRealistic);
+    
+    drawKinematicRobot(rTop, true, rTop.targetTip);
+    drawKinematicRobot(rBot, false, rBot.targetTip);
+    
+    updateLogic();
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
